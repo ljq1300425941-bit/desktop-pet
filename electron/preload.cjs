@@ -8,6 +8,16 @@ const electronAPI = {
   snapToNearestEdge: () => ipcRenderer.invoke("window:snap-to-nearest-edge"),
   snapToRightEdge: () => ipcRenderer.invoke("window:snap-to-right-edge"),
   quit: () => ipcRenderer.invoke("app:quit"),
+  getWeather: () => ipcRenderer.invoke("weather:get-current"),
+  onWeatherUpdated: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+
+    ipcRenderer.on("weather:updated", listener);
+
+    return () => {
+      ipcRenderer.removeListener("weather:updated", listener);
+    };
+  },
   onSwitchView: (callback) => {
     const listener = (_event, payload) => callback(payload);
 

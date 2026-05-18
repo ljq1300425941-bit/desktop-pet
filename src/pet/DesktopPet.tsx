@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useReducer, useRef } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 
 import petEating from "./assets/pet_eating.png";
@@ -10,6 +10,12 @@ import petShy from "./assets/pet_shy.png";
 import petSide from "./assets/pet_side.png";
 import petSleep from "./assets/pet_sleep.png";
 import petSurprised from "./assets/pet_surprised.png";
+import petWeatherCloudyQuiet from "./assets/pet_weather_cloudy_quiet.png";
+import petWeatherHotWilted from "./assets/pet_weather_hot_wilted.png";
+import petWeatherRainSad from "./assets/pet_weather_rain_sad.png";
+import petWeatherRainSleep from "./assets/pet_weather_rain_sleep.png";
+import petWeatherSunnyHappy from "./assets/pet_weather_sunny_happy.png";
+import petWeatherSunnySunbathe from "./assets/pet_weather_sunny_sunbathe.png";
 import "./styles.css";
 
 export type PetState =
@@ -22,6 +28,14 @@ export type PetState =
   | "dragging";
 
 export type PetView = "front" | "side" | "back";
+
+export type WeatherPetMode =
+  | "sunny_happy"
+  | "sunny_sunbathe"
+  | "cloudy_quiet"
+  | "rain_sad"
+  | "rain_sleep"
+  | "hot_wilted";
 
 const STATE_IMAGES: Record<Exclude<PetState, "dragging">, string> = {
   idle: petIdle,
@@ -38,7 +52,24 @@ const VIEW_IMAGES: Record<PetView, string> = {
   back: petBack
 };
 
+const WEATHER_IMAGES: Record<WeatherPetMode, string> = {
+  sunny_happy: petWeatherSunnyHappy,
+  sunny_sunbathe: petWeatherSunnySunbathe,
+  cloudy_quiet: petWeatherCloudyQuiet,
+  rain_sad: petWeatherRainSad,
+  rain_sleep: petWeatherRainSleep,
+  hot_wilted: petWeatherHotWilted
+};
+
 const VIEW_ORDER: PetView[] = ["front", "side", "back"];
+const WEATHER_ORDER: WeatherPetMode[] = [
+  "sunny_happy",
+  "sunny_sunbathe",
+  "cloudy_quiet",
+  "rain_sad",
+  "rain_sleep",
+  "hot_wilted"
+];
 const CLICK_DELAY_MS = 240;
 const SURPRISED_MS = 800;
 const EATING_MS = 3500;
@@ -50,6 +81,46 @@ type DragPoint = {
   screenX: number;
   screenY: number;
   moved: boolean;
+};
+
+type StillPetState = Exclude<PetState, "dragging">;
+
+type PetMachineState = {
+  petState: PetState;
+  petView: PetView;
+  weatherMode: WeatherPetMode | null;
+  isWeatherActive: boolean;
+  lastStillState: StillPetState;
+  isMenuOpen: boolean;
+  isViewSwitching: boolean;
+};
+
+type PetMachineAction =
+  | { type: "START_DRAG"; previousState: StillPetState }
+  | { type: "END_DRAG"; nextState: StillPetState }
+  | { type: "OPEN_MENU" }
+  | { type: "CLOSE_MENU" }
+  | { type: "TOGGLE_MENU" }
+  | { type: "ENTER_SLEEP" }
+  | { type: "TOGGLE_SLEEP" }
+  | { type: "ENTER_PEEK" }
+  | { type: "EXIT_PEEK" }
+  | { type: "ENTER_TEMP_STATE"; state: Exclude<PetState, "idle" | "sleeping" | "dragging"> }
+  | { type: "RETURN_IDLE" }
+  | { type: "SET_WEATHER_MODE"; mode: WeatherPetMode }
+  | { type: "CLEAR_WEATHER_MODE" }
+  | { type: "START_VIEW_SWITCH" }
+  | { type: "SWAP_VIEW" }
+  | { type: "FINISH_VIEW_SWITCH" };
+
+const INITIAL_MACHINE_STATE: PetMachineState = {
+  petState: "idle",
+  petView: "front",
+  weatherMode: null,
+  isWeatherActive: false,
+  lastStillState: "idle",
+  isMenuOpen: false,
+  isViewSwitching: false
 };
 
 function moveWindowBy(dx: number, dy: number) {
@@ -75,34 +146,162 @@ function getNextView(currentView: PetView) {
   return VIEW_ORDER[(currentIndex + 1) % VIEW_ORDER.length];
 }
 
-function getPetImage(petState: Exclude<PetState, "dragging">, petView: PetView) {
+function getNextWeatherMode(currentMode: WeatherPetMode | null) {
+  if (currentMode === null) {
+    return WEATHER_ORDER[0];
+  }
+
+  const currentIndex = WEATHER_ORDER.indexOf(currentMode);
+  return WEATHER_ORDER[(currentIndex + 1) % WEATHER_ORDER.length];
+}
+
+function isWeatherPetMode(value: unknown): value is WeatherPetMode {
+  return typeof value === "string" && WEATHER_ORDER.includes(value as WeatherPetMode);
+}
+
+function getWeatherClassName(weatherMode: WeatherPetMode | null, isWeatherActive: boolean) {
+  if (!isWeatherActive || weatherMode === null) {
+    return "";
+  }
+
+  return ` pet-weather-${weatherMode.replace(/_/g, "-")}`;
+}
+
+function getPetImage(
+  petState: Exclude<PetState, "dragging">,
+  petView: PetView,
+  weatherMode: WeatherPetMode | null,
+  isWeatherActive: boolean
+) {
   if (petState === "idle") {
+    if (isWeatherActive && weatherMode !== null) {
+      return WEATHER_IMAGES[weatherMode];
+    }
+
     return VIEW_IMAGES[petView];
   }
 
   return STATE_IMAGES[petState];
 }
 
+function petReducer(state: PetMachineState, action: PetMachineAction): PetMachineState {
+  switch (action.type) {
+    case "START_DRAG":
+      return {
+        ...state,
+        petState: "dragging",
+        lastStillState: action.previousState,
+        isMenuOpen: false
+      };
+    case "END_DRAG":
+      return {
+        ...state,
+        petState: action.nextState,
+        lastStillState: action.nextState
+      };
+    case "OPEN_MENU":
+      return { ...state, isMenuOpen: true };
+    case "CLOSE_MENU":
+      return { ...state, isMenuOpen: false };
+    case "TOGGLE_MENU":
+      return { ...state, isMenuOpen: !state.isMenuOpen };
+    case "ENTER_SLEEP":
+      return {
+        ...state,
+        petState: "sleeping",
+        lastStillState: "sleeping",
+        isMenuOpen: false
+      };
+    case "TOGGLE_SLEEP": {
+      const nextState = state.petState === "sleeping" ? "idle" : "sleeping";
+      return {
+        ...state,
+        petState: nextState,
+        lastStillState: nextState,
+        isMenuOpen: false
+      };
+    }
+    case "ENTER_PEEK":
+      return {
+        ...state,
+        petState: "peek",
+        lastStillState: "peek",
+        isMenuOpen: false
+      };
+    case "EXIT_PEEK":
+      return {
+        ...state,
+        petState: "idle",
+        lastStillState: "idle",
+        isMenuOpen: false
+      };
+    case "ENTER_TEMP_STATE":
+      return {
+        ...state,
+        petState: action.state,
+        lastStillState: action.state,
+        isMenuOpen: false
+      };
+    case "RETURN_IDLE":
+      return {
+        ...state,
+        petState: "idle",
+        lastStillState: "idle"
+      };
+    case "SET_WEATHER_MODE":
+      return {
+        ...state,
+        weatherMode: action.mode,
+        isWeatherActive: true
+      };
+    case "CLEAR_WEATHER_MODE":
+      return {
+        ...state,
+        weatherMode: null,
+        isWeatherActive: false
+      };
+    case "START_VIEW_SWITCH":
+      return {
+        ...state,
+        petState: "idle",
+        lastStillState: "idle",
+        isMenuOpen: false,
+        isViewSwitching: true
+      };
+    case "SWAP_VIEW":
+      return {
+        ...state,
+        petView: getNextView(state.petView)
+      };
+    case "FINISH_VIEW_SWITCH":
+      return {
+        ...state,
+        isViewSwitching: false
+      };
+    default:
+      return state;
+  }
+}
+
 export default function DesktopPet() {
-  const [petState, setPetState] = useState<PetState>("idle");
-  const [petView, setPetView] = useState<PetView>("front");
-  const [lastStillState, setLastStillState] = useState<Exclude<PetState, "dragging">>("idle");
-  const [isFeedMenuOpen, setIsFeedMenuOpen] = useState(false);
-  const [isViewBouncing, setIsViewBouncing] = useState(false);
+  const [machine, dispatch] = useReducer(petReducer, INITIAL_MACHINE_STATE);
   const dragPoint = useRef<DragPoint | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const isMousePassthrough = useRef(false);
-  const stateBeforeDrag = useRef<Exclude<PetState, "dragging">>("idle");
+  const stateBeforeDrag = useRef<StillPetState>("idle");
   const suppressNextClick = useRef(false);
   const clickTimer = useRef<number | null>(null);
   const viewSwapTimer = useRef<number | null>(null);
   const viewBounceTimer = useRef<number | null>(null);
-  const isViewSwitching = useRef(false);
+  const isViewSwitchingRef = useRef(false);
   const shyHoverTimer = useRef<number | null>(null);
   const stateTimer = useRef<number | null>(null);
 
-  const currentImage = getPetImage(petState === "dragging" ? lastStillState : petState, petView);
+  const { petState, petView, weatherMode, isWeatherActive, lastStillState, isMenuOpen, isViewSwitching } = machine;
+  const displayState = petState === "dragging" ? lastStillState : petState;
+  const currentImage = getPetImage(displayState, petView, weatherMode, isWeatherActive);
+  const weatherClassName = getWeatherClassName(weatherMode, isWeatherActive && displayState === "idle");
 
   const updateMousePassthrough = (shouldIgnore: boolean) => {
     if (isMousePassthrough.current === shouldIgnore) {
@@ -152,8 +351,8 @@ export default function DesktopPet() {
       viewBounceTimer.current = null;
     }
 
-    isViewSwitching.current = false;
-    setIsViewBouncing(false);
+    isViewSwitchingRef.current = false;
+    dispatch({ type: "FINISH_VIEW_SWITCH" });
   };
 
   const clearStateTimer = () => {
@@ -164,22 +363,22 @@ export default function DesktopPet() {
   };
 
   const triggerViewSwitch = () => {
-    if (isViewSwitching.current) {
+    if (isViewSwitchingRef.current) {
       return;
     }
 
     clearViewBounceTimer();
-    isViewSwitching.current = true;
-    setIsViewBouncing(true);
+    isViewSwitchingRef.current = true;
+    dispatch({ type: "START_VIEW_SWITCH" });
 
     viewSwapTimer.current = window.setTimeout(() => {
-      setPetView((currentView) => getNextView(currentView));
+      dispatch({ type: "SWAP_VIEW" });
       viewSwapTimer.current = null;
     }, VIEW_SWAP_MS);
 
     viewBounceTimer.current = window.setTimeout(() => {
-      setIsViewBouncing(false);
-      isViewSwitching.current = false;
+      isViewSwitchingRef.current = false;
+      dispatch({ type: "FINISH_VIEW_SWITCH" });
       viewBounceTimer.current = null;
     }, VIEW_BOUNCE_MS);
   };
@@ -193,23 +392,17 @@ export default function DesktopPet() {
 
   const setTemporaryState = (nextState: Exclude<PetState, "idle" | "sleeping" | "dragging">, ms: number) => {
     clearStateTimer();
-    setPetState(nextState);
-    setLastStillState(nextState);
+    dispatch({ type: "ENTER_TEMP_STATE", state: nextState });
 
     stateTimer.current = window.setTimeout(() => {
-      setPetState("idle");
-      setLastStillState("idle");
+      dispatch({ type: "RETURN_IDLE" });
       stateTimer.current = null;
     }, ms);
   };
 
   const toggleSleeping = () => {
     clearStateTimer();
-    setPetState((currentState) => {
-      const nextState = currentState === "sleeping" ? "idle" : "sleeping";
-      setLastStillState(nextState);
-      return nextState;
-    });
+    dispatch({ type: "TOGGLE_SLEEP" });
   };
 
   const handleMouseDown = (event: ReactMouseEvent<HTMLButtonElement>) => {
@@ -222,12 +415,12 @@ export default function DesktopPet() {
     }
 
     updateMousePassthrough(false);
-    setIsFeedMenuOpen(false);
+    dispatch({ type: "CLOSE_MENU" });
     clearShyHoverTimer();
     clearClickTimer();
     clearStateTimer();
     stateBeforeDrag.current = petState === "dragging" ? lastStillState : petState;
-    setPetState("dragging");
+    dispatch({ type: "START_DRAG", previousState: stateBeforeDrag.current });
 
     dragPoint.current = {
       screenX: event.screenX,
@@ -249,8 +442,7 @@ export default function DesktopPet() {
     }
 
     dragPoint.current = null;
-    setPetState(nextState);
-    setLastStillState(nextState);
+    dispatch({ type: "END_DRAG", nextState });
 
     if (event) {
       updateMousePassthrough(!isInsideInteractiveArea(event.clientX, event.clientY));
@@ -258,7 +450,7 @@ export default function DesktopPet() {
   };
 
   const handleClick = (event: ReactMouseEvent<HTMLButtonElement>) => {
-    setIsFeedMenuOpen(false);
+    dispatch({ type: "CLOSE_MENU" });
 
     if (dragPoint.current || suppressNextClick.current) {
       suppressNextClick.current = false;
@@ -280,13 +472,11 @@ export default function DesktopPet() {
       return;
     }
 
-    if (isViewSwitching.current) {
+    if (isViewSwitchingRef.current) {
       return;
     }
 
     clickTimer.current = window.setTimeout(() => {
-      setPetState("idle");
-      setLastStillState("idle");
       triggerViewSwitch();
       clickTimer.current = null;
     }, CLICK_DELAY_MS);
@@ -296,47 +486,66 @@ export default function DesktopPet() {
     event.preventDefault();
 
     if (petState === "peek") {
-      setIsFeedMenuOpen(false);
+      dispatch({ type: "CLOSE_MENU" });
       clearClickTimer();
       clearStateTimer();
       resetWindowPosition();
-      setPetState("idle");
-      setLastStillState("idle");
+      dispatch({ type: "EXIT_PEEK" });
       return;
     }
 
     clearClickTimer();
     clearShyHoverTimer();
-    setIsFeedMenuOpen((isOpen) => !isOpen);
+    dispatch({ type: "TOGGLE_MENU" });
   };
 
   const handleSleep = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
-    setIsFeedMenuOpen(false);
+    dispatch({ type: "CLOSE_MENU" });
     clearClickTimer();
     clearShyHoverTimer();
     clearStateTimer();
-    setPetState("sleeping");
-    setLastStillState("sleeping");
+    dispatch({ type: "ENTER_SLEEP" });
   };
 
   const handlePeek = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
-    setIsFeedMenuOpen(false);
+    dispatch({ type: "CLOSE_MENU" });
     clearClickTimer();
     clearShyHoverTimer();
     clearStateTimer();
     snapWindowToRightEdge();
-    setPetState("peek");
-    setLastStillState("peek");
+    dispatch({ type: "ENTER_PEEK" });
   };
 
   const handleFeed = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
-    setIsFeedMenuOpen(false);
+    dispatch({ type: "CLOSE_MENU" });
     clearShyHoverTimer();
     clearClickTimer();
     setTemporaryState("eating", EATING_MS);
+  };
+
+  const handleWeatherCycle = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    clearClickTimer();
+    clearShyHoverTimer();
+    dispatch({ type: "SET_WEATHER_MODE", mode: getNextWeatherMode(weatherMode) });
+  };
+
+  const handleWeatherClear = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    clearClickTimer();
+    clearShyHoverTimer();
+    dispatch({ type: "CLEAR_WEATHER_MODE" });
+  };
+
+  const applyWeatherSnapshot = (snapshot: PetWeatherSnapshot | null | undefined) => {
+    if (!snapshot || !isWeatherPetMode(snapshot.mode)) {
+      return;
+    }
+
+    dispatch({ type: "SET_WEATHER_MODE", mode: snapshot.mode });
   };
 
   const handlePetMouseEnter = () => {
@@ -348,24 +557,46 @@ export default function DesktopPet() {
 
     clearShyHoverTimer();
     shyHoverTimer.current = window.setTimeout(() => {
-      setPetState("shy");
-      setLastStillState("shy");
+      dispatch({ type: "ENTER_TEMP_STATE", state: "shy" });
       shyHoverTimer.current = null;
     }, SHY_HOVER_MS);
   };
 
   const handlePetMouseLeave = () => {
     clearShyHoverTimer();
-    if (!isFeedMenuOpen && !dragPoint.current) {
+    if (!isMenuOpen && !dragPoint.current) {
       updateMousePassthrough(true);
     }
 
     if (petState === "shy") {
       clearStateTimer();
-      setPetState("idle");
-      setLastStillState("idle");
+      dispatch({ type: "RETURN_IDLE" });
     }
   };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    window.electronAPI
+      ?.getWeather()
+      .then((snapshot) => {
+        if (isMounted) {
+          applyWeatherSnapshot(snapshot);
+        }
+      })
+      .catch((error) => {
+        console.warn("[weather] Failed to read current weather:", error);
+      });
+
+    const unsubscribe = window.electronAPI?.onWeatherUpdated((snapshot) => {
+      applyWeatherSnapshot(snapshot);
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe?.();
+    };
+  }, []);
 
   useEffect(() => {
     updateMousePassthrough(true);
@@ -409,7 +640,7 @@ export default function DesktopPet() {
 
   return (
     <main
-      className={`pet-root pet-state-${petState}${isViewBouncing ? " pet-view-bounce" : ""}`}
+      className={`pet-root pet-state-${petState}${weatherClassName}${isViewSwitching ? " pet-view-bounce" : ""}`}
       onMouseMove={(event) => {
         if (!dragPoint.current) {
           updateMousePassthrough(!isInsideInteractiveArea(event.clientX, event.clientY));
@@ -437,7 +668,7 @@ export default function DesktopPet() {
           <img className="pet-image" src={currentImage} alt="" draggable={false} />
         </button>
 
-        {isFeedMenuOpen && (
+        {isMenuOpen && (
           <div className="pet-menu" ref={menuRef} role="menu" aria-label="Pet actions">
             <button type="button" className="pet-menu-button" onClick={handleSleep}>
               Sleep
@@ -447,6 +678,12 @@ export default function DesktopPet() {
             </button>
             <button type="button" className="pet-menu-button" onClick={handleFeed}>
               Feed
+            </button>
+            <button type="button" className="pet-menu-button" onClick={handleWeatherCycle}>
+              Weather
+            </button>
+            <button type="button" className="pet-menu-button" onClick={handleWeatherClear}>
+              Clear
             </button>
           </div>
         )}

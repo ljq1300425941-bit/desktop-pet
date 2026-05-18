@@ -73,11 +73,12 @@ body {
 
 .pet-menu {
   position: absolute;
-  right: -2px;
-  bottom: -32px;
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
   display: grid;
   gap: 4px;
-  justify-items: end;
+  justify-items: start;
   background: transparent;
   -webkit-app-region: no-drag;
 }
@@ -101,11 +102,43 @@ body {
 }
 
 .pet-state-idle .pet-hit-area,
+.pet-weather-sunny-happy .pet-hit-area,
+.pet-weather-sunny-sunbathe .pet-hit-area,
+.pet-weather-cloudy-quiet .pet-hit-area,
+.pet-weather-rain-sad .pet-hit-area,
+.pet-weather-rain-sleep .pet-hit-area,
+.pet-weather-hot-wilted .pet-hit-area,
 .pet-state-surprised .pet-hit-area,
 .pet-state-shy .pet-hit-area,
 .pet-state-eating .pet-hit-area,
 .pet-state-peek .pet-hit-area {
   animation: pet-idle-float 2.8s ease-in-out infinite;
+}
+
+.pet-state-idle .pet-image,
+.pet-weather-sunny-happy .pet-image,
+.pet-weather-sunny-sunbathe .pet-image,
+.pet-weather-cloudy-quiet .pet-image,
+.pet-weather-rain-sad .pet-image,
+.pet-weather-rain-sleep .pet-image,
+.pet-weather-hot-wilted .pet-image {
+  width: 82px;
+  height: 82px;
+}
+
+.pet-weather-sunny-sunbathe .pet-hit-area,
+.pet-weather-rain-sleep .pet-hit-area {
+  animation: pet-sleep-breathe 3.8s ease-in-out infinite;
+}
+
+.pet-weather-cloudy-quiet .pet-hit-area,
+.pet-weather-rain-sad .pet-hit-area,
+.pet-weather-hot-wilted .pet-hit-area {
+  animation: pet-weather-sway 3.2s ease-in-out infinite;
+}
+
+.pet-weather-sunny-happy .pet-image {
+  animation: pet-weather-cheer 1.8s ease-in-out infinite;
 }
 
 .pet-state-sleeping .pet-hit-area {
@@ -241,5 +274,25 @@ body {
   100% {
     translate: 0 0;
     opacity: 1;
+  }
+}
+
+@keyframes pet-weather-sway {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -2px;
+  }
+}
+
+@keyframes pet-weather-cheer {
+  0%,
+  100% {
+    scale: 1;
+  }
+  45% {
+    scale: 1.025;
   }
 }

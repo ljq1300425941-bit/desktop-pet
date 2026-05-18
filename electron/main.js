@@ -7,9 +7,171 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WINDOW_WIDTH = 96;
 const WINDOW_HEIGHT = 112;
 const DEV_SERVER_URL = "http://127.0.0.1:5173";
+const WEATHER_REFRESH_MS = 30 * 60 * 1000;
+const WEATHER_REQUEST_TIMEOUT_MS = 10000;
 
 let petWindow = null;
 let tray = null;
+let latestWeatherSnapshot = null;
+let weatherRefreshTimer = null;
+
+function isNumber(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+async function fetchJson(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), WEATHER_REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        accept: "application/json"
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Request failed with ${response.status}`);
+    }
+
+    return await response.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function resolveIpLocation() {
+  try {
+    const location = await fetchJson("https://ipapi.co/json/");
+    return {
+      latitude: Number(location.latitude),
+      longitude: Number(location.longitude),
+      city: location.city || undefined,
+      region: location.region || undefined
+    };
+  } catch (error) {
+    console.warn("[weather] ipapi.co location failed, trying fallback:", error);
+  }
+
+  const fallback = await fetchJson(
+    "http://ip-api.com/json/?fields=status,message,regionName,city,lat,lon,timezone"
+  );
+
+  if (fallback.status !== "success") {
+    throw new Error(fallback.message || "Fallback IP location failed");
+  }
+
+  return {
+    latitude: Number(fallback.lat),
+    longitude: Number(fallback.lon),
+    city: fallback.city || undefined,
+    region: fallback.regionName || undefined
+  };
+}
+
+function mapWeatherToPetMode(currentWeather) {
+  const apparentTemperature = currentWeather?.apparent_temperature;
+  const weatherCode = Number(currentWeather?.weather_code);
+  const precipitation = Number(currentWeather?.precipitation) || 0;
+  const rain = Number(currentWeather?.rain) || 0;
+  const showers = Number(currentWeather?.showers) || 0;
+  const isDay = Number(currentWeather?.is_day) === 1;
+  const totalRain = precipitation + rain + showers;
+
+  if (isNumber(apparentTemperature) && apparentTemperature >= 32) {
+    return "hot_wilted";
+  }
+
+  if (weatherCode === 0) {
+    return isDay ? "sunny_sunbathe" : "sunny_happy";
+  }
+
+  if ([1, 2, 3, 45, 48].includes(weatherCode)) {
+    return "cloudy_quiet";
+  }
+
+  if ((weatherCode >= 51 && weatherCode <= 67) || (weatherCode >= 80 && weatherCode <= 82)) {
+    return !isDay || totalRain >= 2 || weatherCode >= 63 ? "rain_sleep" : "rain_sad";
+  }
+
+  if ((weatherCode >= 71 && weatherCode <= 77) || weatherCode === 85 || weatherCode === 86) {
+    return "rain_sleep";
+  }
+
+  if (weatherCode >= 95 && weatherCode <= 99) {
+    return "rain_sad";
+  }
+
+  return "cloudy_quiet";
+}
+
+async function resolveWeatherSnapshot() {
+  const location = await resolveIpLocation();
+  const latitude = Number(location.latitude);
+  const longitude = Number(location.longitude);
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    throw new Error("IP location did not include valid latitude/longitude");
+  }
+
+  const weatherUrl = new URL("https://api.open-meteo.com/v1/forecast");
+  weatherUrl.searchParams.set("latitude", String(latitude));
+  weatherUrl.searchParams.set("longitude", String(longitude));
+  weatherUrl.searchParams.set(
+    "current",
+    "temperature_2m,apparent_temperature,weather_code,precipitation,rain,showers,cloud_cover,is_day"
+  );
+  weatherUrl.searchParams.set("timezone", "auto");
+
+  const weather = await fetchJson(weatherUrl.toString());
+  const currentWeather = weather.current ?? {};
+
+  return {
+    mode: mapWeatherToPetMode(currentWeather),
+    city: location.city || undefined,
+    region: location.region || undefined,
+    temperature: isNumber(currentWeather.temperature_2m) ? currentWeather.temperature_2m : undefined,
+    apparentTemperature: isNumber(currentWeather.apparent_temperature)
+      ? currentWeather.apparent_temperature
+      : undefined,
+    weatherCode: isNumber(currentWeather.weather_code) ? currentWeather.weather_code : undefined,
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function sendWeatherUpdate(snapshot) {
+  if (!petWindow || petWindow.isDestroyed()) {
+    return;
+  }
+
+  petWindow.webContents.send("weather:updated", snapshot);
+}
+
+async function refreshWeather() {
+  try {
+    latestWeatherSnapshot = await resolveWeatherSnapshot();
+    sendWeatherUpdate(latestWeatherSnapshot);
+  } catch (error) {
+    console.warn("[weather] Failed to refresh weather:", error);
+  }
+}
+
+function startWeatherService() {
+  if (weatherRefreshTimer !== null) {
+    return;
+  }
+
+  refreshWeather();
+  weatherRefreshTimer = setInterval(refreshWeather, WEATHER_REFRESH_MS);
+}
+
+function stopWeatherService() {
+  if (weatherRefreshTimer !== null) {
+    clearInterval(weatherRefreshTimer);
+    weatherRefreshTimer = null;
+  }
+}
 
 function getStartBounds() {
   const display = screen.getPrimaryDisplay();
@@ -195,6 +357,7 @@ app.whenReady().then(async () => {
   app.setName("Desktop Pet");
   await createPetWindow();
   createTray();
+  startWeatherService();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -205,6 +368,10 @@ app.whenReady().then(async () => {
 
 app.on("window-all-closed", (event) => {
   event.preventDefault();
+});
+
+app.on("before-quit", () => {
+  stopWeatherService();
 });
 
 ipcMain.handle("pet:set-ignore-mouse-events", (_event, shouldIgnore) => {
@@ -230,3 +397,5 @@ ipcMain.handle("window:snap-to-right-edge", () => {
 ipcMain.handle("app:quit", () => {
   app.quit();
 });
+
+ipcMain.handle("weather:get-current", () => latestWeatherSnapshot);
