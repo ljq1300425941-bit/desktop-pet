@@ -37,6 +37,8 @@ export type WeatherPetMode =
   | "rain_sleep"
   | "hot_wilted";
 
+type WeatherDisplayMode = { kind: "front" } | { kind: "weather"; mode: WeatherPetMode };
+
 const STATE_IMAGES: Record<Exclude<PetState, "dragging">, string> = {
   idle: petIdle,
   surprised: petSurprised,
@@ -88,7 +90,8 @@ type StillPetState = Exclude<PetState, "dragging">;
 type PetMachineState = {
   petState: PetState;
   petView: PetView;
-  weatherMode: WeatherPetMode | null;
+  weatherSnapshot: PetWeatherSnapshot | null;
+  weatherDisplayMode: WeatherDisplayMode;
   isWeatherActive: boolean;
   lastStillState: StillPetState;
   isMenuOpen: boolean;
@@ -107,7 +110,8 @@ type PetMachineAction =
   | { type: "EXIT_PEEK" }
   | { type: "ENTER_TEMP_STATE"; state: Exclude<PetState, "idle" | "sleeping" | "dragging"> }
   | { type: "RETURN_IDLE" }
-  | { type: "SET_WEATHER_MODE"; mode: WeatherPetMode }
+  | { type: "SET_WEATHER_SNAPSHOT"; snapshot: PetWeatherSnapshot }
+  | { type: "ADVANCE_WEATHER_DISPLAY" }
   | { type: "CLEAR_WEATHER_MODE" }
   | { type: "START_VIEW_SWITCH" }
   | { type: "SWAP_VIEW" }
@@ -116,7 +120,8 @@ type PetMachineAction =
 const INITIAL_MACHINE_STATE: PetMachineState = {
   petState: "idle",
   petView: "front",
-  weatherMode: null,
+  weatherSnapshot: null,
+  weatherDisplayMode: { kind: "front" },
   isWeatherActive: false,
   lastStillState: "idle",
   isMenuOpen: false,
@@ -146,21 +151,92 @@ function getNextView(currentView: PetView) {
   return VIEW_ORDER[(currentIndex + 1) % VIEW_ORDER.length];
 }
 
-function getNextWeatherMode(currentMode: WeatherPetMode | null) {
-  if (currentMode === null) {
-    return WEATHER_ORDER[0];
-  }
-
-  const currentIndex = WEATHER_ORDER.indexOf(currentMode);
-  return WEATHER_ORDER[(currentIndex + 1) % WEATHER_ORDER.length];
-}
-
 function isWeatherPetMode(value: unknown): value is WeatherPetMode {
   return typeof value === "string" && WEATHER_ORDER.includes(value as WeatherPetMode);
 }
 
-function getWeatherClassName(weatherMode: WeatherPetMode | null, isWeatherActive: boolean) {
-  if (!isWeatherActive || weatherMode === null) {
+function isSameWeatherDisplayMode(left: WeatherDisplayMode, right: WeatherDisplayMode) {
+  if (left.kind !== right.kind) {
+    return false;
+  }
+
+  return left.kind === "front" || left.mode === (right as { kind: "weather"; mode: WeatherPetMode }).mode;
+}
+
+function getWeatherRotationGroup(snapshot: PetWeatherSnapshot | null): WeatherDisplayMode[] {
+  if (!snapshot || !isWeatherPetMode(snapshot.mode)) {
+    return [{ kind: "front" }];
+  }
+
+  if (snapshot.mode === "sunny_happy" || snapshot.mode === "sunny_sunbathe") {
+    return [{ kind: "front" }, { kind: "weather", mode: "sunny_happy" }, { kind: "weather", mode: "sunny_sunbathe" }];
+  }
+
+  if (snapshot.mode === "rain_sad" || snapshot.mode === "rain_sleep") {
+    return [{ kind: "front" }, { kind: "weather", mode: "rain_sad" }, { kind: "weather", mode: "rain_sleep" }];
+  }
+
+  return [{ kind: "front" }, { kind: "weather", mode: snapshot.mode }];
+}
+
+function getNextWeatherDisplayMode(currentDisplayMode: WeatherDisplayMode, snapshot: PetWeatherSnapshot | null) {
+  const group = getWeatherRotationGroup(snapshot);
+  const currentIndex = group.findIndex((item) => isSameWeatherDisplayMode(item, currentDisplayMode));
+
+  if (currentIndex === -1) {
+    return group[0];
+  }
+
+  return group[(currentIndex + 1) % group.length];
+}
+
+function getWeatherLabel(snapshot: PetWeatherSnapshot | null) {
+  if (!snapshot || !isWeatherPetMode(snapshot.mode)) {
+    return "Weather";
+  }
+
+  if (snapshot.mode === "sunny_happy" || snapshot.mode === "sunny_sunbathe") {
+    return "Sunny";
+  }
+
+  if (snapshot.mode === "rain_sad" || snapshot.mode === "rain_sleep") {
+    return "Rainy";
+  }
+
+  if (snapshot.mode === "hot_wilted") {
+    return "Hot";
+  }
+
+  return "Cloudy";
+}
+
+function formatWeatherInfo(snapshot: PetWeatherSnapshot | null) {
+  if (!snapshot) {
+    return "Weather loading";
+  }
+
+  const place = snapshot.city || snapshot.region || "Current location";
+  const temperature = typeof snapshot.temperature === "number" ? `${Math.round(snapshot.temperature)}\u00b0C` : null;
+  const label = getWeatherLabel(snapshot);
+
+  return [place, temperature, label].filter(Boolean).join(" · ");
+}
+
+function getVisibleWeatherMode(
+  petState: Exclude<PetState, "dragging">,
+  petView: PetView,
+  weatherDisplayMode: WeatherDisplayMode,
+  isWeatherActive: boolean
+) {
+  if (petState !== "idle" || petView !== "front" || !isWeatherActive || weatherDisplayMode.kind !== "weather") {
+    return null;
+  }
+
+  return weatherDisplayMode.mode;
+}
+
+function getWeatherClassName(weatherMode: WeatherPetMode | null) {
+  if (weatherMode === null) {
     return "";
   }
 
@@ -170,15 +246,19 @@ function getWeatherClassName(weatherMode: WeatherPetMode | null, isWeatherActive
 function getPetImage(
   petState: Exclude<PetState, "dragging">,
   petView: PetView,
-  weatherMode: WeatherPetMode | null,
+  weatherDisplayMode: WeatherDisplayMode,
   isWeatherActive: boolean
 ) {
   if (petState === "idle") {
-    if (isWeatherActive && weatherMode !== null) {
-      return WEATHER_IMAGES[weatherMode];
+    if (petView !== "front") {
+      return VIEW_IMAGES[petView];
     }
 
-    return VIEW_IMAGES[petView];
+    if (isWeatherActive && weatherDisplayMode.kind === "weather") {
+      return WEATHER_IMAGES[weatherDisplayMode.mode];
+    }
+
+    return VIEW_IMAGES.front;
   }
 
   return STATE_IMAGES[petState];
@@ -248,16 +328,23 @@ function petReducer(state: PetMachineState, action: PetMachineAction): PetMachin
         petState: "idle",
         lastStillState: "idle"
       };
-    case "SET_WEATHER_MODE":
+    case "SET_WEATHER_SNAPSHOT":
       return {
         ...state,
-        weatherMode: action.mode,
+        weatherSnapshot: action.snapshot,
+        weatherDisplayMode: getNextWeatherDisplayMode(state.weatherDisplayMode, action.snapshot),
         isWeatherActive: true
+      };
+    case "ADVANCE_WEATHER_DISPLAY":
+      return {
+        ...state,
+        weatherDisplayMode: getNextWeatherDisplayMode(state.weatherDisplayMode, state.weatherSnapshot),
+        isWeatherActive: state.weatherSnapshot !== null || state.isWeatherActive
       };
     case "CLEAR_WEATHER_MODE":
       return {
         ...state,
-        weatherMode: null,
+        weatherDisplayMode: { kind: "front" },
         isWeatherActive: false
       };
     case "START_VIEW_SWITCH":
@@ -298,10 +385,21 @@ export default function DesktopPet() {
   const shyHoverTimer = useRef<number | null>(null);
   const stateTimer = useRef<number | null>(null);
 
-  const { petState, petView, weatherMode, isWeatherActive, lastStillState, isMenuOpen, isViewSwitching } = machine;
+  const {
+    petState,
+    petView,
+    weatherSnapshot,
+    weatherDisplayMode,
+    isWeatherActive,
+    lastStillState,
+    isMenuOpen,
+    isViewSwitching
+  } = machine;
   const displayState = petState === "dragging" ? lastStillState : petState;
-  const currentImage = getPetImage(displayState, petView, weatherMode, isWeatherActive);
-  const weatherClassName = getWeatherClassName(weatherMode, isWeatherActive && displayState === "idle");
+  const currentImage = getPetImage(displayState, petView, weatherDisplayMode, isWeatherActive);
+  const visibleWeatherMode = getVisibleWeatherMode(displayState, petView, weatherDisplayMode, isWeatherActive);
+  const weatherClassName = getWeatherClassName(visibleWeatherMode);
+  const weatherInfo = formatWeatherInfo(weatherSnapshot);
 
   const updateMousePassthrough = (shouldIgnore: boolean) => {
     if (isMousePassthrough.current === shouldIgnore) {
@@ -530,7 +628,7 @@ export default function DesktopPet() {
     event.stopPropagation();
     clearClickTimer();
     clearShyHoverTimer();
-    dispatch({ type: "SET_WEATHER_MODE", mode: getNextWeatherMode(weatherMode) });
+    dispatch({ type: "ADVANCE_WEATHER_DISPLAY" });
   };
 
   const handleWeatherClear = (event: ReactMouseEvent<HTMLButtonElement>) => {
@@ -545,7 +643,7 @@ export default function DesktopPet() {
       return;
     }
 
-    dispatch({ type: "SET_WEATHER_MODE", mode: snapshot.mode });
+    dispatch({ type: "SET_WEATHER_SNAPSHOT", snapshot });
   };
 
   const handlePetMouseEnter = () => {
@@ -670,6 +768,9 @@ export default function DesktopPet() {
 
         {isMenuOpen && (
           <div className="pet-menu" ref={menuRef} role="menu" aria-label="Pet actions">
+            <div className="pet-weather-info" role="status">
+              {weatherInfo}
+            </div>
             <button type="button" className="pet-menu-button" onClick={handleSleep}>
               Sleep
             </button>

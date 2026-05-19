@@ -4,9 +4,11 @@ A tiny transparent Electron desktop pet for Windows, built with Electron, Vite, 
 
 ## Version
 
-Current release: **v2.0.0**
+Current release: **v2.1.0**
 
 v2 adds real weather awareness. The pet can now use IP-based location, fetch live weather from Open-Meteo, and switch between weather-specific moods while keeping the existing desktop companion interactions.
+
+v2.1 refines the weather experience. Every 30-minute weather refresh can rotate the front view with the current weather mood, while side and back views remain manual click-only views. The right-click menu also shows the current city, temperature, and weather label.
 
 ## Features
 
@@ -18,6 +20,7 @@ v2 adds real weather awareness. The pet can now use IP-based location, fetch liv
 - Double click surprised / wake behavior
 - Hover-to-shy interaction
 - Right-click pet menu with Sleep, Peek, Feed, Weather, and Clear actions
+- Right-click weather info with city, temperature, and weather type
 - Peek mode that snaps the pet to the right screen edge
 - Real weather integration:
   - IP-based location
@@ -37,6 +40,8 @@ The v2 weather layer maps current weather into pet mood images:
 - `hot_wilted`
 
 User interactions still take priority. Dragging, feeding, sleeping, peeking, shy, and surprised states temporarily override the weather display, then the pet returns to the current weather mood.
+
+In v2.1, weather rotation only affects the front view and weather mood images. Side and back views are still controlled by left-click view switching and are not selected automatically by weather refreshes.
 
 ## Development
 

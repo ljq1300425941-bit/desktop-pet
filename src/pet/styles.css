@@ -101,6 +101,21 @@ body {
   transform: translateY(-1px);
 }
 
+.pet-weather-info {
+  min-width: 74px;
+  max-width: 126px;
+  border: 1px solid rgba(114, 88, 67, 0.24);
+  border-radius: 7px;
+  padding: 4px 5px;
+  background: rgba(255, 252, 229, 0.92);
+  color: #725843;
+  font: 700 9px/1.25 "Segoe UI", system-ui, sans-serif;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  box-sizing: border-box;
+  -webkit-app-region: no-drag;
+}
+
 .pet-state-idle .pet-hit-area,
 .pet-weather-sunny-happy .pet-hit-area,
 .pet-weather-sunny-sunbathe .pet-hit-area,
