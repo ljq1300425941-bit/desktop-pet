@@ -2,6 +2,7 @@
 type WeatherPetMode =
   | "sunny_happy"
   | "sunny_sunbathe"
+  | "cloudy_breeze"
   | "cloudy_quiet"
   | "rain_sad"
   | "rain_sleep"

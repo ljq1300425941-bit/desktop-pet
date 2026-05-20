@@ -119,6 +119,7 @@ body {
 .pet-state-idle .pet-hit-area,
 .pet-weather-sunny-happy .pet-hit-area,
 .pet-weather-sunny-sunbathe .pet-hit-area,
+.pet-weather-cloudy-breeze .pet-hit-area,
 .pet-weather-cloudy-quiet .pet-hit-area,
 .pet-weather-rain-sad .pet-hit-area,
 .pet-weather-rain-sleep .pet-hit-area,
@@ -133,6 +134,7 @@ body {
 .pet-state-idle .pet-image,
 .pet-weather-sunny-happy .pet-image,
 .pet-weather-sunny-sunbathe .pet-image,
+.pet-weather-cloudy-breeze .pet-image,
 .pet-weather-cloudy-quiet .pet-image,
 .pet-weather-rain-sad .pet-image,
 .pet-weather-rain-sleep .pet-image,
@@ -146,6 +148,7 @@ body {
   animation: pet-sleep-breathe 3.8s ease-in-out infinite;
 }
 
+.pet-weather-cloudy-breeze .pet-hit-area,
 .pet-weather-cloudy-quiet .pet-hit-area,
 .pet-weather-rain-sad .pet-hit-area,
 .pet-weather-hot-wilted .pet-hit-area {

@@ -10,6 +10,7 @@ import petShy from "./assets/pet_shy.png";
 import petSide from "./assets/pet_side.png";
 import petSleep from "./assets/pet_sleep.png";
 import petSurprised from "./assets/pet_surprised.png";
+import petWeatherCloudyBreeze from "./assets/pet_weather_cloudy_breeze.png";
 import petWeatherCloudyQuiet from "./assets/pet_weather_cloudy_quiet.png";
 import petWeatherHotWilted from "./assets/pet_weather_hot_wilted.png";
 import petWeatherRainSad from "./assets/pet_weather_rain_sad.png";
@@ -32,6 +33,7 @@ export type PetView = "front" | "side" | "back";
 export type WeatherPetMode =
   | "sunny_happy"
   | "sunny_sunbathe"
+  | "cloudy_breeze"
   | "cloudy_quiet"
   | "rain_sad"
   | "rain_sleep"
@@ -57,6 +59,7 @@ const VIEW_IMAGES: Record<PetView, string> = {
 const WEATHER_IMAGES: Record<WeatherPetMode, string> = {
   sunny_happy: petWeatherSunnyHappy,
   sunny_sunbathe: petWeatherSunnySunbathe,
+  cloudy_breeze: petWeatherCloudyBreeze,
   cloudy_quiet: petWeatherCloudyQuiet,
   rain_sad: petWeatherRainSad,
   rain_sleep: petWeatherRainSleep,
@@ -67,6 +70,7 @@ const VIEW_ORDER: PetView[] = ["front", "side", "back"];
 const WEATHER_ORDER: WeatherPetMode[] = [
   "sunny_happy",
   "sunny_sunbathe",
+  "cloudy_breeze",
   "cloudy_quiet",
   "rain_sad",
   "rain_sleep",
@@ -174,6 +178,10 @@ function getWeatherRotationGroup(snapshot: PetWeatherSnapshot | null): WeatherDi
 
   if (snapshot.mode === "rain_sad" || snapshot.mode === "rain_sleep") {
     return [{ kind: "front" }, { kind: "weather", mode: "rain_sad" }, { kind: "weather", mode: "rain_sleep" }];
+  }
+
+  if (snapshot.mode === "cloudy_quiet" || snapshot.mode === "cloudy_breeze") {
+    return [{ kind: "front" }, { kind: "weather", mode: "cloudy_quiet" }, { kind: "weather", mode: "cloudy_breeze" }];
   }
 
   return [{ kind: "front" }, { kind: "weather", mode: snapshot.mode }];

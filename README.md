@@ -4,11 +4,13 @@ A tiny transparent Electron desktop pet for Windows, built with Electron, Vite, 
 
 ## Version
 
-Current release: **v2.1.0**
+Current release: **v2.1.1**
 
 v2 adds real weather awareness. The pet can now use IP-based location, fetch live weather from Open-Meteo, and switch between weather-specific moods while keeping the existing desktop companion interactions.
 
 v2.1 refines the weather experience. Every 30-minute weather refresh can rotate the front view with the current weather mood, while side and back views remain manual click-only views. The right-click menu also shows the current city, temperature, and weather label.
+
+v2.1.1 adds a cloudy breeze mood with drifting leaves to the cloudy weather rotation.
 
 ## Features
 
@@ -34,6 +36,7 @@ The v2 weather layer maps current weather into pet mood images:
 
 - `sunny_happy`
 - `sunny_sunbathe`
+- `cloudy_breeze`
 - `cloudy_quiet`
 - `rain_sad`
 - `rain_sleep`
