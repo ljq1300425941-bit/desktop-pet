@@ -9,6 +9,10 @@ const electronAPI = {
   snapToRightEdge: () => ipcRenderer.invoke("window:snap-to-right-edge"),
   quit: () => ipcRenderer.invoke("app:quit"),
   getWeather: () => ipcRenderer.invoke("weather:get-current"),
+  refreshWeather: () => ipcRenderer.invoke("weather:refresh"),
+  setWeatherEnabled: (shouldEnable) => ipcRenderer.invoke("weather:set-enabled", Boolean(shouldEnable)),
+  getSettings: () => ipcRenderer.invoke("settings:get"),
+  updateSettings: (patch) => ipcRenderer.invoke("settings:update", patch),
   onWeatherUpdated: (callback) => {
     const listener = (_event, payload) => callback(payload);
 

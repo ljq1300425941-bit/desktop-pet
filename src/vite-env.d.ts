@@ -18,6 +18,18 @@ type PetWeatherSnapshot = {
   updatedAt: string;
 };
 
+type DesktopPetSettings = {
+  weatherEnabled: boolean;
+  locationMode: "auto" | "fixed";
+  fixedLocation?: {
+    label: string;
+    latitude: number;
+    longitude: number;
+  };
+  alwaysOnTop: boolean;
+  launchAtStartup: boolean;
+};
+
 interface DesktopPetApi {
   setIgnoreMouseEvents: (shouldIgnore: boolean) => Promise<void>;
   resetPosition: () => Promise<void>;
@@ -26,7 +38,11 @@ interface DesktopPetApi {
   snapToRightEdge: () => Promise<void>;
   quit: () => Promise<void>;
   getWeather: () => Promise<PetWeatherSnapshot | null>;
-  onWeatherUpdated: (callback: (payload: PetWeatherSnapshot) => void) => () => void;
+  refreshWeather: () => Promise<PetWeatherSnapshot | null>;
+  setWeatherEnabled: (shouldEnable: boolean) => Promise<DesktopPetSettings>;
+  getSettings: () => Promise<DesktopPetSettings>;
+  updateSettings: (patch: Partial<DesktopPetSettings>) => Promise<DesktopPetSettings>;
+  onWeatherUpdated: (callback: (payload: PetWeatherSnapshot | null) => void) => () => void;
   onSwitchView: (callback: (payload: unknown) => void) => () => void;
 }
 

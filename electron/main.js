@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, screen } from "electron";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,14 +10,146 @@ const WINDOW_HEIGHT = 112;
 const DEV_SERVER_URL = "http://127.0.0.1:5173";
 const WEATHER_REFRESH_MS = 30 * 60 * 1000;
 const WEATHER_REQUEST_TIMEOUT_MS = 10000;
+const APP_VERSION = "3.0.0";
+const DEFAULT_SETTINGS = {
+  weatherEnabled: true,
+  locationMode: "auto",
+  fixedLocation: {
+    label: "Harbin",
+    latitude: 45.7421,
+    longitude: 126.663
+  },
+  alwaysOnTop: true,
+  launchAtStartup: false
+};
 
 let petWindow = null;
 let tray = null;
 let latestWeatherSnapshot = null;
 let weatherRefreshTimer = null;
+let settings = { ...DEFAULT_SETTINGS };
 
 function isNumber(value) {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function isValidFixedLocation(value) {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      typeof value.label === "string" &&
+      Number.isFinite(Number(value.latitude)) &&
+      Number.isFinite(Number(value.longitude))
+  );
+}
+
+function normalizeSettings(value) {
+  const nextSettings = {
+    ...DEFAULT_SETTINGS,
+    ...(value && typeof value === "object" ? value : {})
+  };
+
+  nextSettings.weatherEnabled = Boolean(nextSettings.weatherEnabled);
+  nextSettings.locationMode = nextSettings.locationMode === "fixed" ? "fixed" : "auto";
+  nextSettings.fixedLocation = isValidFixedLocation(nextSettings.fixedLocation)
+    ? {
+        label: nextSettings.fixedLocation.label,
+        latitude: Number(nextSettings.fixedLocation.latitude),
+        longitude: Number(nextSettings.fixedLocation.longitude)
+      }
+    : DEFAULT_SETTINGS.fixedLocation;
+  nextSettings.alwaysOnTop = Boolean(nextSettings.alwaysOnTop);
+  nextSettings.launchAtStartup = Boolean(nextSettings.launchAtStartup);
+
+  return nextSettings;
+}
+
+function getSettingsPath() {
+  return path.join(app.getPath("userData"), "settings.json");
+}
+
+function saveSettings() {
+  fs.mkdirSync(path.dirname(getSettingsPath()), { recursive: true });
+  fs.writeFileSync(getSettingsPath(), JSON.stringify(settings, null, 2), "utf8");
+}
+
+function loadSettings() {
+  try {
+    if (fs.existsSync(getSettingsPath())) {
+      const parsedSettings = JSON.parse(fs.readFileSync(getSettingsPath(), "utf8"));
+      settings = normalizeSettings(parsedSettings);
+    } else {
+      settings = normalizeSettings(DEFAULT_SETTINGS);
+      saveSettings();
+    }
+  } catch (error) {
+    console.warn("[settings] Failed to load settings, using defaults:", error);
+    settings = normalizeSettings(DEFAULT_SETTINGS);
+    saveSettings();
+  }
+}
+
+function sendWeatherUpdate(snapshot) {
+  if (!petWindow || petWindow.isDestroyed()) {
+    return;
+  }
+
+  petWindow.webContents.send("weather:updated", snapshot);
+}
+
+function applyAlwaysOnTopSetting() {
+  if (!petWindow || petWindow.isDestroyed()) {
+    return;
+  }
+
+  petWindow.setAlwaysOnTop(Boolean(settings.alwaysOnTop), "screen-saver");
+}
+
+function applyLaunchAtStartupSetting() {
+  app.setLoginItemSettings({
+    openAtLogin: Boolean(settings.launchAtStartup)
+  });
+}
+
+function applyWeatherEnabledSetting() {
+  if (settings.weatherEnabled) {
+    startWeatherService();
+    return;
+  }
+
+  stopWeatherService();
+  latestWeatherSnapshot = null;
+  sendWeatherUpdate(null);
+}
+
+function refreshTrayMenu() {
+  tray?.setContextMenu(createContextMenu());
+}
+
+function applySettings() {
+  applyAlwaysOnTopSetting();
+  applyLaunchAtStartupSetting();
+  applyWeatherEnabledSetting();
+  refreshTrayMenu();
+}
+
+function updateSettings(patch) {
+  const shouldRefreshWeather = Boolean(
+    patch &&
+      typeof patch === "object" &&
+      ("locationMode" in patch || "fixedLocation" in patch)
+  );
+
+  settings = normalizeSettings({
+    ...settings,
+    ...(patch && typeof patch === "object" ? patch : {})
+  });
+  saveSettings();
+  applySettings();
+  if (settings.weatherEnabled && shouldRefreshWeather) {
+    refreshWeather();
+  }
+  return settings;
 }
 
 async function fetchJson(url) {
@@ -107,7 +240,15 @@ function mapWeatherToPetMode(currentWeather) {
 }
 
 async function resolveWeatherSnapshot() {
-  const location = await resolveIpLocation();
+  const location =
+    settings.locationMode === "fixed" && isValidFixedLocation(settings.fixedLocation)
+      ? {
+          latitude: settings.fixedLocation.latitude,
+          longitude: settings.fixedLocation.longitude,
+          city: settings.fixedLocation.label,
+          region: undefined
+        }
+      : await resolveIpLocation();
   const latitude = Number(location.latitude);
   const longitude = Number(location.longitude);
 
@@ -140,24 +281,28 @@ async function resolveWeatherSnapshot() {
   };
 }
 
-function sendWeatherUpdate(snapshot) {
-  if (!petWindow || petWindow.isDestroyed()) {
-    return;
+async function refreshWeather() {
+  if (!settings.weatherEnabled) {
+    latestWeatherSnapshot = null;
+    sendWeatherUpdate(null);
+    return null;
   }
 
-  petWindow.webContents.send("weather:updated", snapshot);
-}
-
-async function refreshWeather() {
   try {
     latestWeatherSnapshot = await resolveWeatherSnapshot();
     sendWeatherUpdate(latestWeatherSnapshot);
+    return latestWeatherSnapshot;
   } catch (error) {
     console.warn("[weather] Failed to refresh weather:", error);
+    return latestWeatherSnapshot;
   }
 }
 
 function startWeatherService() {
+  if (!settings.weatherEnabled) {
+    return;
+  }
+
   if (weatherRefreshTimer !== null) {
     return;
   }
@@ -283,9 +428,55 @@ function createContextMenu() {
         }
       }
     },
+    { type: "separator" },
+    {
+      label: "Weather",
+      type: "checkbox",
+      checked: settings.weatherEnabled,
+      click: (menuItem) => updateSettings({ weatherEnabled: menuItem.checked })
+    },
+    {
+      label: "Refresh Weather",
+      enabled: settings.weatherEnabled,
+      click: () => refreshWeather()
+    },
+    {
+      label: "Location Mode",
+      submenu: [
+        {
+          label: "Auto Location",
+          type: "radio",
+          checked: settings.locationMode === "auto",
+          click: () => updateSettings({ locationMode: "auto" })
+        },
+        {
+          label: `Fixed: ${settings.fixedLocation.label}`,
+          type: "radio",
+          checked: settings.locationMode === "fixed",
+          click: () => updateSettings({ locationMode: "fixed" })
+        }
+      ]
+    },
+    { type: "separator" },
+    {
+      label: "Always On Top",
+      type: "checkbox",
+      checked: settings.alwaysOnTop,
+      click: (menuItem) => updateSettings({ alwaysOnTop: menuItem.checked })
+    },
+    {
+      label: "Launch at Startup",
+      type: "checkbox",
+      checked: settings.launchAtStartup,
+      click: (menuItem) => updateSettings({ launchAtStartup: menuItem.checked })
+    },
     {
       label: "Reset Position",
       click: () => keepWindowOnScreen(petWindow)
+    },
+    {
+      label: `Version ${APP_VERSION}`,
+      enabled: false
     },
     { type: "separator" },
     {
@@ -323,7 +514,7 @@ async function createPetWindow() {
     minimizable: false,
     fullscreenable: false,
     skipTaskbar: true,
-    alwaysOnTop: true,
+    alwaysOnTop: settings.alwaysOnTop,
     hasShadow: false,
     backgroundColor: "#00000000",
     webPreferences: {
@@ -333,7 +524,7 @@ async function createPetWindow() {
     }
   });
 
-  petWindow.setAlwaysOnTop(true, "screen-saver");
+  applyAlwaysOnTopSetting();
   petWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
   if (process.env.VITE_DEV_SERVER_URL) {
@@ -355,9 +546,10 @@ async function createPetWindow() {
 
 app.whenReady().then(async () => {
   app.setName("Desktop Pet");
+  loadSettings();
   await createPetWindow();
   createTray();
-  startWeatherService();
+  applySettings();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -398,4 +590,14 @@ ipcMain.handle("app:quit", () => {
   app.quit();
 });
 
-ipcMain.handle("weather:get-current", () => latestWeatherSnapshot);
+ipcMain.handle("weather:get-current", () => (settings.weatherEnabled ? latestWeatherSnapshot : null));
+
+ipcMain.handle("weather:refresh", () => refreshWeather());
+
+ipcMain.handle("weather:set-enabled", (_event, shouldEnable) =>
+  updateSettings({ weatherEnabled: Boolean(shouldEnable) })
+);
+
+ipcMain.handle("settings:get", () => settings);
+
+ipcMain.handle("settings:update", (_event, patch) => updateSettings(patch));

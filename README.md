@@ -4,13 +4,15 @@ A tiny transparent Electron desktop pet for Windows, built with Electron, Vite, 
 
 ## Version
 
-Current release: **v2.1.1**
+Current release: **v3.0.0**
 
 v2 adds real weather awareness. The pet can now use IP-based location, fetch live weather from Open-Meteo, and switch between weather-specific moods while keeping the existing desktop companion interactions.
 
 v2.1 refines the weather experience. Every 30-minute weather refresh can rotate the front view with the current weather mood, while side and back views remain manual click-only views. The right-click menu also shows the current city, temperature, and weather label.
 
 v2.1.1 adds a cloudy breeze mood with drifting leaves to the cloudy weather rotation.
+
+v3 adds a persisted settings system and tray controls for weather, location mode, always-on-top behavior, startup launch, and manual weather refresh.
 
 ## Features
 
@@ -24,11 +26,24 @@ v2.1.1 adds a cloudy breeze mood with drifting leaves to the cloudy weather rota
 - Right-click pet menu with Sleep, Peek, Feed, Weather, and Clear actions
 - Right-click weather info with city, temperature, and weather type
 - Peek mode that snaps the pet to the right screen edge
+- Persisted local settings in the Electron user data folder
+- Tray controls for weather, location mode, always on top, launch at startup, version, and quit
 - Real weather integration:
   - IP-based location
   - Open-Meteo current weather
   - 30-minute refresh interval
   - Weather modes for sunny, cloudy, rainy, and hot conditions
+
+## Settings
+
+v3 stores settings locally in Electron's `userData` folder.
+
+- Weather on/off
+- Auto location or fixed location
+- Fixed location coordinates
+- Always on top
+- Launch at startup
+- Manual weather refresh from the tray menu
 
 ## Weather Modes
 

@@ -647,7 +647,12 @@ export default function DesktopPet() {
   };
 
   const applyWeatherSnapshot = (snapshot: PetWeatherSnapshot | null | undefined) => {
-    if (!snapshot || !isWeatherPetMode(snapshot.mode)) {
+    if (!snapshot) {
+      dispatch({ type: "CLEAR_WEATHER_MODE" });
+      return;
+    }
+
+    if (!isWeatherPetMode(snapshot.mode)) {
       return;
     }
 
